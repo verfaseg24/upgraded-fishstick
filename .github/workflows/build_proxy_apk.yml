@@ -29,7 +29,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
@@ -126,7 +126,7 @@ jobs:
           find out/${{ github.event.inputs.architecture }} -name "*.apk" -type f
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: kiwi-proxy-${{ github.event.inputs.architecture }}-${{ github.event.inputs.build_type }}
           path: out/${{ github.event.inputs.architecture }}/apks/*.apk
