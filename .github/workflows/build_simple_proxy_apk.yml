@@ -1,6 +1,7 @@
-# Simple Build using Kiwi's existing infrastructure
-name: 'Simple: Build with Proxy (using Kiwi buildbot)'
+# Build APKs for Kiwi Browser with Proxy Support
+name: 'Build APK with Proxy Support'
 
+# This workflow uses Kiwi's existing build infrastructure
 on:
   workflow_dispatch:
 
@@ -9,93 +10,140 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Verify proxy files exist
+        run: |
+          echo "🔍 Checking proxy implementation files..."
+          
+          # Check Java files
+          if [ -f "chrome/android/java/src/org/chromium/chrome/browser/proxy/ProxyConfig.java" ]; then
+            echo "✅ ProxyConfig.java found"
+          else
+            echo "❌ ProxyConfig.java not found"
+            exit 1
+          fi
+          
+          if [ -f "chrome/android/java/src/org/chromium/chrome/browser/proxy/ProxyManager.java" ]; then
+            echo "✅ ProxyManager.java found"
+          else
+            echo "❌ ProxyManager.java not found"
+            exit 1
+          fi
+          
+          if [ -f "chrome/android/java/src/org/chromium/chrome/browser/proxy/ProxyFetcher.java" ]; then
+            echo "✅ ProxyFetcher.java found (Auto-proxy support)"
+          else
+            echo "⚠️ ProxyFetcher.java not found (Auto-proxy disabled)"
+          fi
+          
+          # Check C++ files
+          if [ -f "chrome/browser/proxy/proxy_manager_android.cc" ]; then
+            echo "✅ proxy_manager_android.cc found"
+          else
+            echo "❌ proxy_manager_android.cc not found"
+            exit 1
+          fi
+          
+          # Check layouts
+          if [ -f "chrome/android/java/res/layout/activity_proxy_settings.xml" ]; then
+            echo "✅ activity_proxy_settings.xml found"
+          else
+            echo "❌ activity_proxy_settings.xml not found"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ All proxy files verified!"
+
       - name: Get branch name
         id: branch-name
         uses: tj-actions/branch-names@v4.8
-    
-      - name: Trigger build on Kiwi buildbot
+
+      - name: Trigger Kiwi build server
+        id: trigger_build
         run: |
-          echo "🚀 Triggering build with proxy support..."
+          echo "🚀 Attempting to trigger Kiwi build server..."
+          echo "Repository: ${{ github.repository }}"
           echo "Branch: ${{ steps.branch-name.outputs.current_branch }}"
           echo "Run ID: ${{ github.run_id }}"
           echo ""
-          echo "⚠️ Note: This requires BUILD_KEY secret to be configured"
-          echo "If you don't have access to Kiwi's buildbot, use the 'Build APK with Proxy Support' workflow instead"
           
-      - name: Build using Kiwi infrastructure (if BUILD_KEY available)
-        if: ${{ secrets.BUILD_KEY != '' }}
-        run: |
-          curl --http1.0 --no-buffer -s \
-            'http://longbuild.find.kiwi/build_apk.php?build_key=${{ secrets.BUILD_KEY }}&git_user=${{ github.repository_owner }}&git_repository=${{ github.event.repository.name }}&git_runid=${{ github.run_id }}&git_branch=${{ steps.branch-name.outputs.current_branch }}'
+          if [ -z "${{ secrets.BUILD_KEY }}" ]; then
+            echo "❌ BUILD_KEY not configured"
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "⚠️  KIWI BUILD SERVER NOT AVAILABLE"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "GitHub Actions cannot build Chromium (requires 4+ hours and 100GB+ disk)."
+            echo ""
+            echo "📋 RECOMMENDED SOLUTION: Build locally"
+            echo ""
+            echo "1. Install dependencies:"
+            echo "   sudo apt-get install python3 openjdk-11-jdk git"
+            echo ""
+            echo "2. Setup depot_tools:"
+            echo "   git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git"
+            echo "   export PATH=\"\$PATH:\$HOME/depot_tools\""
+            echo ""
+            echo "3. Setup Android SDK (see BUILD_APK_GUIDE.md)"
+            echo ""
+            echo "4. Build:"
+            echo "   gn gen out/Default"
+            echo "   autoninja -C out/Default chrome_public_apk"
+            echo ""
+            echo "📚 Full guide: BUILD_APK_GUIDE.md"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            echo "build_triggered=false" >> $GITHUB_OUTPUT
+            exit 0
+          else
+            echo "✅ BUILD_KEY found, triggering build..."
+            curl --http1.0 --no-buffer -s \
+              "http://longbuild.find.kiwi/build_apk.php?build_key=${{ secrets.BUILD_KEY }}&git_user=${{ github.repository_owner }}&git_repository=${{ github.event.repository.name }}&git_runid=${{ github.run_id }}&git_branch=${{ steps.branch-name.outputs.current_branch }}"
+            echo ""
+            echo "build_triggered=true" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Download APK (if built)
-        if: ${{ secrets.BUILD_KEY != '' }}
-        run: |
-          sleep 60
-          wget -q 'https://build.find.kiwi/apks/${{ github.run_id }}/out.apk' || echo "APK not ready yet"
-
-      - name: Instructions for manual build
-        if: ${{ secrets.BUILD_KEY == '' }}
-        run: |
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📋 MANUAL BUILD INSTRUCTIONS"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          echo "Since BUILD_KEY is not configured, you need to build manually:"
-          echo ""
-          echo "1️⃣  Clone the repository:"
-          echo "   git clone https://github.com/${{ github.repository }}.git"
-          echo "   cd src.next"
-          echo ""
-          echo "2️⃣  Install dependencies (Ubuntu/Debian):"
-          echo "   sudo apt-get update"
-          echo "   sudo apt-get install -y python3 openjdk-11-jdk git"
-          echo ""
-          echo "3️⃣  Setup depot_tools:"
-          echo "   git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git"
-          echo "   export PATH=\"\$PATH:\$HOME/depot_tools\""
-          echo ""
-          echo "4️⃣  Setup Android SDK:"
-          echo "   # Download from: https://developer.android.com/studio#command-tools"
-          echo "   export ANDROID_SDK_ROOT=\$HOME/android-sdk"
-          echo ""
-          echo "5️⃣  Generate build files:"
-          echo "   mkdir -p out/Default"
-          echo "   cp .build/android_arm64/args.gn out/Default/"
-          echo "   gn gen out/Default"
-          echo ""
-          echo "6️⃣  Build APK:"
-          echo "   autoninja -C out/Default chrome_public_apk"
-          echo ""
-          echo "7️⃣  Find your APK:"
-          echo "   ls -lh out/Default/apks/ChromePublic.apk"
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📚 Full guide: BUILD_APK_GUIDE.md"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-      - name: Create summary
+      - name: Build summary
         run: |
           echo "## Build Status 📱" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -n "${{ secrets.BUILD_KEY }}" ]; then
+          
+          if [ "${{ steps.trigger_build.outputs.build_triggered }}" == "true" ]; then
             echo "✅ Build triggered on Kiwi infrastructure" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Download link: https://build.find.kiwi/apks/${{ github.run_id }}/out.apk" >> $GITHUB_STEP_SUMMARY
+            echo "**Download link (available in 30-60 minutes):**" >> $GITHUB_STEP_SUMMARY
+            echo "https://build.find.kiwi/apks/${{ github.run_id }}/out.apk" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️ BUILD_KEY not configured" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ Kiwi build server not available" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Manual Build Required" >> $GITHUB_STEP_SUMMARY
+            echo "### Build Locally Instead" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Please follow the instructions in BUILD_APK_GUIDE.md" >> $GITHUB_STEP_SUMMARY
+            echo "GitHub Actions cannot build Chromium (too resource intensive)." >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Or use the 'Build APK with Proxy Support' workflow for automated build" >> $GITHUB_STEP_SUMMARY
+            echo "**Follow these steps:**" >> $GITHUB_STEP_SUMMARY
+            echo "1. Clone repository locally" >> $GITHUB_STEP_SUMMARY
+            echo "2. Install dependencies (see BUILD_APK_GUIDE.md)" >> $GITHUB_STEP_SUMMARY
+            echo "3. Run: \`gn gen out/Default && autoninja -C out/Default chrome_public_apk\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Requirements:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Linux or macOS" >> $GITHUB_STEP_SUMMARY
+            echo "- 16+ GB RAM" >> $GITHUB_STEP_SUMMARY
+            echo "- 100+ GB disk space" >> $GITHUB_STEP_SUMMARY
+            echo "- 2-4 hours build time" >> $GITHUB_STEP_SUMMARY
           fi
+          
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Proxy Features Included:" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ HTTP Proxy" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ HTTPS Proxy" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ SOCKS4 Proxy" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ SOCKS5 Proxy" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Authentication Support" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ HTTP/HTTPS Proxy" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ SOCKS4/SOCKS5 Proxy" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Auto Proxy (Free proxies from API)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Proxy Authentication" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Settings UI" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Proxy Testing" >> $GITHUB_STEP_SUMMARY
+
