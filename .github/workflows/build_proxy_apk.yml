@@ -1,0 +1,207 @@
+# Build APK with Proxy Support
+name: 'Build APK with Proxy Support'
+
+on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: 'Target architecture'
+        required: true
+        default: 'arm64'
+        type: choice
+        options:
+          - arm
+          - arm64
+          - x86
+          - x64
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - debug
+          - release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      - name: Free up disk space
+        run: |
+          sudo swapoff -a
+          sudo rm -f /swapfile
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo apt-get clean
+          df -h
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip openjdk-11-jdk git curl wget unzip
+
+      - name: Setup depot_tools
+        run: |
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $HOME/depot_tools
+          echo "$HOME/depot_tools" >> $GITHUB_PATH
+
+      - name: Setup Android SDK
+        run: |
+          mkdir -p $HOME/android-sdk
+          cd $HOME/android-sdk
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+          unzip -q commandlinetools-linux-9477386_latest.zip
+          yes | cmdline-tools/bin/sdkmanager --sdk_root=$HOME/android-sdk \
+            "platform-tools" "platforms;android-33" "build-tools;33.0.0" "ndk;23.1.7779620"
+          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$HOME/android-sdk/ndk/23.1.7779620" >> $GITHUB_ENV
+
+      - name: Verify proxy files
+        run: |
+          echo "Checking proxy implementation files..."
+          ls -la chrome/browser/proxy/ || echo "Proxy C++ files not found"
+          ls -la chrome/android/java/src/org/chromium/chrome/browser/proxy/ || echo "Proxy Java files not found"
+
+      - name: Create build directory
+        run: mkdir -p out/${{ github.event.inputs.architecture }}
+
+      - name: Generate args.gn
+        run: |
+          cat > out/${{ github.event.inputs.architecture }}/args.gn << 'EOF'
+          target_os = "android"
+          target_cpu = "${{ github.event.inputs.architecture }}"
+          
+          is_debug = ${{ github.event.inputs.build_type == 'debug' && 'true' || 'false' }}
+          is_official_build = ${{ github.event.inputs.build_type == 'release' && 'true' || 'false' }}
+          is_component_build = false
+          
+          # Android specific
+          android_channel = "stable"
+          android_default_version_name = "105.0.5195.33-proxy"
+          android_default_version_code = "519533001"
+          
+          # Optimizations
+          symbol_level = 1
+          enable_nacl = false
+          remove_webcore_debug_symbols = true
+          
+          # Disable unnecessary features
+          enable_reporting = false
+          enable_remoting = false
+          
+          # Branding
+          is_chrome_branded = false
+          use_official_google_api_keys = false
+          
+          # Keystore for signing
+          android_keystore_path = "//android_keystore"
+          android_keystore_name = "chromium-debug"
+          android_keystore_password = "chromium"
+          EOF
+
+      - name: Display args.gn
+        run: cat out/${{ github.event.inputs.architecture }}/args.gn
+
+      - name: Generate build files
+        run: |
+          export PATH="$HOME/depot_tools:$PATH"
+          gn gen out/${{ github.event.inputs.architecture }}
+
+      - name: Build APK
+        run: |
+          export PATH="$HOME/depot_tools:$PATH"
+          autoninja -C out/${{ github.event.inputs.architecture }} chrome_public_apk
+
+      - name: List output files
+        run: |
+          ls -lh out/${{ github.event.inputs.architecture }}/apks/ || echo "No APKs found"
+          find out/${{ github.event.inputs.architecture }} -name "*.apk" -type f
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: kiwi-proxy-${{ github.event.inputs.architecture }}-${{ github.event.inputs.build_type }}
+          path: out/${{ github.event.inputs.architecture }}/apks/*.apk
+          if-no-files-found: error
+
+      - name: Create Release
+        if: github.event.inputs.build_type == 'release'
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: proxy-build-${{ github.run_id }}
+          release_name: Kiwi Browser with Proxy Support - Build ${{ github.run_id }}
+          draft: false
+          prerelease: true
+          body: |
+            # Kiwi Browser with Proxy Support
+            
+            **Build ID:** ${{ github.run_id }}
+            **Architecture:** ${{ github.event.inputs.architecture }}
+            **Build Type:** ${{ github.event.inputs.build_type }}
+            
+            ## Features
+            - ✅ HTTP Proxy support
+            - ✅ HTTPS Proxy support
+            - ✅ SOCKS4 Proxy support
+            - ✅ SOCKS5 Proxy support
+            - ✅ Proxy authentication (username/password)
+            - ✅ Easy proxy configuration UI
+            
+            ## Installation
+            1. Download the APK for your device architecture
+            2. Enable "Install from unknown sources" in Android settings
+            3. Install the APK
+            4. Open browser → Settings → Proxy Settings
+            5. Configure your proxy server
+            
+            ## Proxy Configuration
+            - Open browser menu
+            - Go to Settings
+            - Find "Proxy Settings"
+            - Enable proxy and configure:
+              - Type: HTTP/HTTPS/SOCKS4/SOCKS5
+              - Host: your proxy server address
+              - Port: your proxy port
+              - Username/Password (optional)
+            
+            ## Testing
+            After configuring proxy, visit https://whatismyipaddress.com/ to verify.
+            
+            ---
+            Built with ❤️ using GitHub Actions
+
+      - name: Upload Release Asset
+        if: github.event.inputs.build_type == 'release'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: out/${{ github.event.inputs.architecture }}/apks/ChromePublic.apk
+          asset_name: kiwi-browser-proxy-${{ github.event.inputs.architecture }}-${{ github.run_id }}.apk
+          asset_content_type: application/vnd.android.package-archive
+
+      - name: Build summary
+        run: |
+          echo "## Build Complete! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Architecture:** ${{ github.event.inputs.architecture }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Type:** ${{ github.event.inputs.build_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Build ID:** ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Features Added:" >> $GITHUB_STEP_SUMMARY
+          echo "- HTTP/HTTPS Proxy" >> $GITHUB_STEP_SUMMARY
+          echo "- SOCKS4/SOCKS5 Proxy" >> $GITHUB_STEP_SUMMARY
+          echo "- Proxy Authentication" >> $GITHUB_STEP_SUMMARY
+          echo "- Proxy Settings UI" >> $GITHUB_STEP_SUMMARY

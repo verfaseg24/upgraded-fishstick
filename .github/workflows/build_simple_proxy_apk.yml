@@ -1,0 +1,101 @@
+# Simple Build using Kiwi's existing infrastructure
+name: 'Simple: Build with Proxy (using Kiwi buildbot)'
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get branch name
+        id: branch-name
+        uses: tj-actions/branch-names@v4.8
+    
+      - name: Trigger build on Kiwi buildbot
+        run: |
+          echo "🚀 Triggering build with proxy support..."
+          echo "Branch: ${{ steps.branch-name.outputs.current_branch }}"
+          echo "Run ID: ${{ github.run_id }}"
+          echo ""
+          echo "⚠️ Note: This requires BUILD_KEY secret to be configured"
+          echo "If you don't have access to Kiwi's buildbot, use the 'Build APK with Proxy Support' workflow instead"
+          
+      - name: Build using Kiwi infrastructure (if BUILD_KEY available)
+        if: ${{ secrets.BUILD_KEY != '' }}
+        run: |
+          curl --http1.0 --no-buffer -s \
+            'http://longbuild.find.kiwi/build_apk.php?build_key=${{ secrets.BUILD_KEY }}&git_user=${{ github.repository_owner }}&git_repository=${{ github.event.repository.name }}&git_runid=${{ github.run_id }}&git_branch=${{ steps.branch-name.outputs.current_branch }}'
+
+      - name: Download APK (if built)
+        if: ${{ secrets.BUILD_KEY != '' }}
+        run: |
+          sleep 60
+          wget -q 'https://build.find.kiwi/apks/${{ github.run_id }}/out.apk' || echo "APK not ready yet"
+
+      - name: Instructions for manual build
+        if: ${{ secrets.BUILD_KEY == '' }}
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📋 MANUAL BUILD INSTRUCTIONS"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Since BUILD_KEY is not configured, you need to build manually:"
+          echo ""
+          echo "1️⃣  Clone the repository:"
+          echo "   git clone https://github.com/${{ github.repository }}.git"
+          echo "   cd src.next"
+          echo ""
+          echo "2️⃣  Install dependencies (Ubuntu/Debian):"
+          echo "   sudo apt-get update"
+          echo "   sudo apt-get install -y python3 openjdk-11-jdk git"
+          echo ""
+          echo "3️⃣  Setup depot_tools:"
+          echo "   git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git"
+          echo "   export PATH=\"\$PATH:\$HOME/depot_tools\""
+          echo ""
+          echo "4️⃣  Setup Android SDK:"
+          echo "   # Download from: https://developer.android.com/studio#command-tools"
+          echo "   export ANDROID_SDK_ROOT=\$HOME/android-sdk"
+          echo ""
+          echo "5️⃣  Generate build files:"
+          echo "   mkdir -p out/Default"
+          echo "   cp .build/android_arm64/args.gn out/Default/"
+          echo "   gn gen out/Default"
+          echo ""
+          echo "6️⃣  Build APK:"
+          echo "   autoninja -C out/Default chrome_public_apk"
+          echo ""
+          echo "7️⃣  Find your APK:"
+          echo "   ls -lh out/Default/apks/ChromePublic.apk"
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📚 Full guide: BUILD_APK_GUIDE.md"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      - name: Create summary
+        run: |
+          echo "## Build Status 📱" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ secrets.BUILD_KEY }}" ]; then
+            echo "✅ Build triggered on Kiwi infrastructure" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Download link: https://build.find.kiwi/apks/${{ github.run_id }}/out.apk" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ BUILD_KEY not configured" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Manual Build Required" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Please follow the instructions in BUILD_APK_GUIDE.md" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Or use the 'Build APK with Proxy Support' workflow for automated build" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Proxy Features Included:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ HTTP Proxy" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ HTTPS Proxy" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ SOCKS4 Proxy" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ SOCKS5 Proxy" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Authentication Support" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Settings UI" >> $GITHUB_STEP_SUMMARY

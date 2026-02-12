@@ -1,0 +1,46 @@
+# Copyright 2024 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//build/config/android/rules.gni")
+
+if (is_android) {
+  source_set("proxy") {
+    sources = [
+      "kiwi_proxy_config_service.cc",
+      "kiwi_proxy_config_service.h",
+      "proxy_manager_android.cc",
+      "proxy_manager_android.h",
+    ]
+
+    deps = [
+      "//base",
+      "//chrome/android:chrome_jni_headers",
+      "//content/public/browser",
+      "//net",
+    ]
+  }
+
+  android_library("proxy_java") {
+    sources = [
+      "//chrome/android/java/src/org/chromium/chrome/browser/proxy/ProxyConfig.java",
+      "//chrome/android/java/src/org/chromium/chrome/browser/proxy/ProxyManager.java",
+      "//chrome/android/java/src/org/chromium/chrome/browser/proxy/ProxySettingsActivity.java",
+    ]
+
+    deps = [
+      "//base:base_java",
+      "//base:jni_java",
+      "//third_party/androidx:androidx_annotation_annotation_java",
+      "//third_party/androidx:androidx_appcompat_appcompat_java",
+    ]
+
+    annotation_processor_deps = [ "//base/android/jni_generator:jni_processor" ]
+  }
+
+  generate_jni("jni_headers") {
+    sources = [
+      "//chrome/android/java/src/org/chromium/chrome/browser/proxy/ProxyManager.java",
+    ]
+  }
+}
